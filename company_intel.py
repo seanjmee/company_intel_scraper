@@ -1,11 +1,13 @@
 import os
 import sys
 import json
-from typing import Dict
+from typing import Dict, Tuple, Optional
 from dotenv import load_dotenv
 import gradio as gr
 import markdown
 from openai import OpenAI
+import tempfile
+from weasyprint import HTML
 
 # Add parent directory to path to import scraper
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -178,6 +180,8 @@ def get_company_intel_user_prompt(company_name: str, url: str) -> str:
 
 def get_company_intel(company_name: str, url: str) -> str:
     """Generate company intelligence report"""
+    print(f"Generating report for {company_name} from {url}")
+    print(get_company_intel_user_prompt(company_name, url))
     try:
         response = openai.chat.completions.create(
             model=MODEL,
@@ -268,6 +272,62 @@ def generate_report_html(company_name: str, url: str) -> str:
         return error_html
 
 
+def generate_report_pdf(company_name: str, url: str) -> Optional[str]:
+    """
+    Generate company intelligence report as PDF file
+    Returns path to PDF file or None if generation fails
+    """
+    try:
+        print(f"\n📄 Generating PDF for: {company_name}")
+        
+        # Get the HTML report (reuse existing function)
+        html_content = generate_report_html(company_name, url)
+        
+        # Check if it's an error message
+        if "Error Generating Report" in html_content or "Please provide both" in html_content:
+            print("❌ Cannot generate PDF - report generation failed")
+            return None
+        
+        # Create temporary file for PDF
+        pdf_file = tempfile.NamedTemporaryFile(
+            delete=False, 
+            suffix='.pdf',
+            prefix=f"{company_name.replace(' ', '_')}_report_"
+        )
+        
+        print("   → Converting HTML to PDF...")
+        
+        # Convert HTML to PDF using WeasyPrint
+        HTML(string=html_content).write_pdf(pdf_file.name)
+        
+        print(f"   ✓ PDF generated: {pdf_file.name}")
+        return pdf_file.name
+        
+    except Exception as e:
+        print(f"❌ Error generating PDF: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def generate_report_with_download(company_name: str, url: str) -> Tuple[str, Optional[str]]:
+    """
+    Generate both HTML report (for display) and PDF (for download)
+    Returns tuple: (html_string, pdf_file_path or None)
+    """
+    # Generate HTML for display
+    html_report = generate_report_html(company_name, url)
+    
+    # Check if it was successful
+    if "Error Generating Report" in html_report or "Please provide both" in html_report:
+        return html_report, None
+    
+    # Generate PDF for download
+    pdf_path = generate_report_pdf(company_name, url)
+    
+    return html_report, pdf_path
+
+
 def create_gradio_interface():
     """Create and launch the Gradio web interface"""
     
@@ -282,6 +342,7 @@ def create_gradio_interface():
         1. Enter a company name and their website URL
         2. AI scrapes and analyzes the website content
         3. Generates a detailed report with company objectives, priorities, and opportunities
+        4. **Download as beautifully formatted PDF!**
         """)
         
         with gr.Row():
@@ -336,11 +397,19 @@ def create_gradio_interface():
                 output_html = gr.HTML(
                     value="<p style='color: #999; text-align: center; padding: 100px;'>Enter company details and click 'Generate Report' to begin.</p>"
                 )
+                
+                # PDF Download section
+                gr.Markdown("### 📥 Download Report")
+                pdf_output = gr.File(
+                    label="Click the file name below to download your PDF report",
+                    visible=True
+                )
         
+        # Connect button to generate both HTML and PDF
         generate_btn.click(
-            fn=generate_report_html,
+            fn=generate_report_with_download,
             inputs=[company_name, company_url],
-            outputs=output_html
+            outputs=[output_html, pdf_output]
         )
         
         gr.Markdown("""
