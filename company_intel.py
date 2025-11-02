@@ -1,11 +1,15 @@
 import os
+import sys
 import json
 from typing import Dict
 from dotenv import load_dotenv
 import gradio as gr
 import markdown
-from scraper import fetch_website_links, fetch_website_contents
 from openai import OpenAI
+
+# Add parent directory to path to import scraper
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from scraper import fetch_website_links, fetch_website_contents
 
 load_dotenv()
 openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -43,7 +47,12 @@ def get_links_user_prompt(url: str) -> str:
     respond with the full https URL in JSON format.
     Do not include Terms of Service, Privacy, email links.
     """
-    user_prompt += fetch_website_links(url)
+    try:
+        links = fetch_website_links(url)
+        # Convert list to string representation
+        user_prompt += "\n\nLinks found:\n" + "\n".join(str(link) for link in links)
+    except Exception as e:
+        user_prompt += f"\n\nError fetching links: {str(e)}"
     return user_prompt
 
 
